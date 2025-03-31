@@ -1,13 +1,24 @@
 package PasswordManagerProject.ui;
 
+import PasswordManagerProject.model.Account;
+import PasswordManagerProject.storage.AccountStorage;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.List;
 
 public class MainForm extends JPanel {
 
+    private DefaultTableModel tableModel;
+    private JTable accountTable;
+    private List<Account> accounts;
+
     public MainForm() {
         setLayout(new BorderLayout()); // Root Layout
+
+        // ======= Load Accounts =======
+        accounts = AccountStorage.loadAccounts();
 
         // ======= Create Tabbed Pane =======
         JTabbedPane tabbedPane = new JTabbedPane();
@@ -34,12 +45,13 @@ public class MainForm extends JPanel {
 
         // ======= Left (Table) =======
         String[] columnNames = {"Username", "Password", "Notes"};
-        Object[][] data = {
-                {"user1", "*****", "Personal"},
-                {"user2", "*****", "Work"}
+        tableModel = new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false; // Make table read-only
+            }
         };
-        DefaultTableModel tableModel = new DefaultTableModel(data, columnNames);
-        JTable accountTable = new JTable(tableModel);
+        accountTable = new JTable(tableModel);
         JScrollPane tableScrollPane = new JScrollPane(accountTable);
 
         JPanel leftPanel = new JPanel(new BorderLayout());
@@ -62,5 +74,43 @@ public class MainForm extends JPanel {
 
         // ======= Add TabbedPane to Main Panel =======
         add(tabbedPane, BorderLayout.CENTER);
+
+        // ======= Load Table Data =======
+        refreshTable();
+
+        // ======= Button Actions =======
+        addButton.addActionListener(e -> openAddAccountDialog());
+        removeButton.addActionListener(e -> removeSelectedAccount());
+    }
+
+    private void refreshTable() {
+        tableModel.setRowCount(0); // Clear
+        for (Account acc : accounts) {
+            tableModel.addRow(new Object[]{acc.getUsername(), "*****", acc.getNotes()});
+        }
+    }
+
+    private void openAddAccountDialog() {
+        JFrame parentFrame = (JFrame) SwingUtilities.getWindowAncestor(this);
+        AddAccountDialog dialog = new AddAccountDialog(parentFrame);
+        dialog.setVisible(true);
+
+        if (dialog.isSubmitted()) {
+            Account newAcc = dialog.getAccount();
+            accounts.add(newAcc);
+            AccountStorage.saveAccounts(accounts);
+            refreshTable();
+        }
+    }
+
+    private void removeSelectedAccount() {
+        int selectedRow = accountTable.getSelectedRow();
+        if (selectedRow != -1) {
+            accounts.remove(selectedRow);
+            AccountStorage.saveAccounts(accounts);
+            refreshTable();
+        } else {
+            JOptionPane.showMessageDialog(this, "Please select an account to remove.");
+        }
     }
 }
