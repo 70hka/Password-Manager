@@ -14,6 +14,13 @@ public class MainForm extends JPanel {
     private JTable accountTable;
     private List<Account> accounts;
 
+    private JLabel timerLabel;
+    private Timer hideTimer;
+    private JPasswordField pinField;
+    private boolean passwordsVisible = false;
+    private JButton hideButton;
+
+
     public MainForm() {
         setLayout(new BorderLayout()); // Root Layout
 
@@ -31,12 +38,31 @@ public class MainForm extends JPanel {
         JButton addButton = new JButton("Add Account");
         JButton removeButton = new JButton("Remove Account");
         JLabel pinLabel = new JLabel("Unhide PIN:");
-        JPasswordField pinField = new JPasswordField(10);
+
+        pinField = new JPasswordField(10);
+        timerLabel = new JLabel(""); // Timer label (empty initially)
+
+        pinField.addActionListener(e -> verifyPin()); // Verify on Enter
 
         topPanel.add(addButton);
         topPanel.add(removeButton);
         topPanel.add(pinLabel);
         topPanel.add(pinField);
+        topPanel.add(timerLabel);
+
+        hideButton = new JButton("Hide Passwords");
+        hideButton.setVisible(false); // Initially hidden
+        hideButton.addActionListener(e -> {
+            if (hideTimer != null) {
+                hideTimer.stop();
+            }
+            censorPasswords();
+            timerLabel.setText("");
+            hideButton.setVisible(false);
+            JOptionPane.showMessageDialog(this, "Passwords hidden.");
+        });
+
+        topPanel.add(hideButton);
 
         // ======= Center Split Pane =======
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -81,6 +107,15 @@ public class MainForm extends JPanel {
         // ======= Button Actions =======
         addButton.addActionListener(e -> openAddAccountDialog());
         removeButton.addActionListener(e -> removeSelectedAccount());
+
+        // ======= Check for pin =======
+        SwingUtilities.invokeLater(() -> {
+            if (!PasswordManagerProject.storage.PinStorage.pinExists()) {
+                JFrame parentFrame = (JFrame) SwingUtilities.getWindowAncestor(this);
+                CreatePinDialog dialog = new CreatePinDialog(parentFrame);
+                dialog.setVisible(true);
+            }
+        });
     }
 
     private void refreshTable() {
@@ -111,6 +146,55 @@ public class MainForm extends JPanel {
             refreshTable();
         } else {
             JOptionPane.showMessageDialog(this, "Please select an account to remove.");
+        }
+    }
+
+    private void uncensorPasswords() {
+        passwordsVisible = true;
+        tableModel.setRowCount(0);
+        for (PasswordManagerProject.model.Account acc : accounts) {
+            tableModel.addRow(new Object[]{acc.getUsername(), acc.getPassword(), acc.getNotes()});
+        }
+    }
+
+    private void censorPasswords() {
+        passwordsVisible = false;
+        hideButton.setVisible(false);
+        refreshTable();
+    }
+
+    private void startHideTimer() {
+        hideButton.setVisible(true);
+        if (hideTimer != null && hideTimer.isRunning()) {
+            hideTimer.stop();
+        }
+
+        final int[] timeLeft = {180}; // 3 minutes in seconds
+
+        hideTimer = new Timer(1000, e -> {
+            timeLeft[0]--;
+            timerLabel.setText("Visible: " + timeLeft[0] + "s");
+
+            if (timeLeft[0] <= 0) {
+                hideTimer.stop();
+                censorPasswords();
+                timerLabel.setText("");
+                JOptionPane.showMessageDialog(this, "Passwords hidden again.");
+            }
+        });
+
+        hideTimer.start();
+    }
+
+    private void verifyPin() {
+        String enteredPin = new String(pinField.getPassword());
+        String storedPin = PasswordManagerProject.storage.PinStorage.loadPin();
+
+        if (enteredPin.equals(storedPin)) {
+            uncensorPasswords();
+            startHideTimer();
+        } else {
+            JOptionPane.showMessageDialog(this, "Incorrect PIN!");
         }
     }
 }
