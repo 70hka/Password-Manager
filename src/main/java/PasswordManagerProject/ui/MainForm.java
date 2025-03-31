@@ -30,8 +30,9 @@ public class MainForm extends JPanel {
         // ======= Create Tabbed Pane =======
         JTabbedPane tabbedPane = new JTabbedPane();
 
-        // ======= Create Accounts Panel =======
+        // ======= Create Tabbed Panels =======
         JPanel accountsPanel = new JPanel(new BorderLayout());
+        JPanel settingsPanel = new JPanel(new BorderLayout());
 
         // ======= Top Panel (Buttons + PIN) =======
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -95,8 +96,10 @@ public class MainForm extends JPanel {
         accountsPanel.add(topPanel, BorderLayout.NORTH);
         accountsPanel.add(splitPane, BorderLayout.CENTER);
 
-        // ======= Add Tab =======
+        // ======= Add Tabs =======
         tabbedPane.addTab("Accounts", accountsPanel);
+        tabbedPane.addTab("Settings", settingsPanel);
+
 
         // ======= Add TabbedPane to Main Panel =======
         add(tabbedPane, BorderLayout.CENTER);
