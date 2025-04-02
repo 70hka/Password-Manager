@@ -1,45 +1,62 @@
 package PasswordManagerProject.storage;
 
-import PasswordManagerProject.model.Account;
+import PasswordManagerProject.crypt.EncryptionManager;
 import PasswordManagerProject.model.AccountData;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
 
-import java.io.*;
-import java.lang.reflect.Type;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.List;
 
 public class AccountStorage {
     private static final String FILE_PATH = "accounts.json";
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
-    public static AccountData loadData() {
-        File file = new File(FILE_PATH);
-        if (!file.exists()) {
-            return new AccountData(null, new ArrayList<>());
-        }
-        try (Reader reader = new FileReader(FILE_PATH)) {
-            AccountData data = gson.fromJson(reader, AccountData.class);
-            if (data == null) { // <-- Fix for empty/corrupt file
+    /**
+     * Loads and decrypts account data.
+     */
+    public static AccountData loadData(String pin) {
+        try {
+            File file = new File(FILE_PATH);
+            if (!file.exists() || file.length() == 0) {
                 return new AccountData(null, new ArrayList<>());
             }
+
+            byte[] salt = EncryptionManager.getOrCreateSalt();
+            SecretKeySpec key = EncryptionManager.deriveKey(pin, salt);
+
+            String encryptedContent = new String(Files.readAllBytes(Paths.get(FILE_PATH)));
+            String decryptedJson = EncryptionManager.decrypt(encryptedContent, key);
+
+            AccountData data = gson.fromJson(decryptedJson, AccountData.class);
             if (data.getAccounts() == null) {
                 data.setAccounts(new ArrayList<>());
             }
             return data;
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("❗ Failed to load account data: " + e.getMessage());
             return new AccountData(null, new ArrayList<>());
         }
     }
 
-    public static void saveData(AccountData data) {
-        try (Writer writer = new FileWriter(FILE_PATH)){
-            gson.toJson(data, writer);
-        } catch (IOException e){
-            e.printStackTrace();
+    /**
+     * Encrypts and saves account data.
+     */
+    public static void saveData(AccountData data, String pin) {
+        try {
+            byte[] salt = EncryptionManager.getOrCreateSalt();
+            SecretKeySpec key = EncryptionManager.deriveKey(pin, salt);
+
+            String json = gson.toJson(data);
+            String encryptedContent = EncryptionManager.encrypt(json, key);
+
+            Files.write(Paths.get(FILE_PATH), encryptedContent.getBytes());
+            System.out.println("✅ Account data saved & encrypted.");
+        } catch (Exception e) {
+            System.err.println("❗ Failed to save account data: " + e.getMessage());
         }
     }
 }

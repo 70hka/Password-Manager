@@ -7,6 +7,7 @@ import PasswordManagerProject.model.AccountData;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.File;
 import java.util.List;
 
 public class MainForm extends JPanel {
@@ -23,18 +24,57 @@ public class MainForm extends JPanel {
 
     private AccountData accountData;
     private PropertiesPanel propertiesPanel;
+    private String pin;
 
     public MainForm() {
         setLayout(new BorderLayout()); // Root Layout
 
-        // ======= Load Accounts =======
-        accountData = AccountStorage.loadData();
+        // ======= First-time setup or PIN unlock =======
+        File accountFile = new File("accounts.json");
+        File saltFile = new File("salt.dat");
+
+        if (!accountFile.exists() || !saltFile.exists() || accountFile.length() == 0) {
+            // First-time launch → Create new PIN
+            while (true) {
+                pin = JOptionPane.showInputDialog(this, "Create a new PIN:");
+                if (pin == null || pin.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "PIN is required to use the application.");
+                    System.exit(0);
+                }
+
+                int confirm = JOptionPane.showConfirmDialog(this, "Confirm this PIN?", "Confirm", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    accountData = new AccountData(pin, new java.util.ArrayList<>());
+                    AccountStorage.saveData(accountData, pin);
+                    JOptionPane.showMessageDialog(this, "PIN created and saved.");
+                    break;
+                }
+            }
+        } else {
+            // ======= Existing user → Prompt to enter PIN =======
+            while (true) {
+                pin = JOptionPane.showInputDialog(this, "Enter your PIN to unlock:");
+                if (pin == null || pin.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "PIN is required to start the application.");
+                    System.exit(0);
+                }
+
+                accountData = AccountStorage.loadData(pin);
+                if (accountData.getPin() == null) {
+                    JOptionPane.showMessageDialog(this, "Decryption failed. Wrong PIN or file corrupted.");
+                } else if (pin.equals(accountData.getPin())) {
+                    break; // Correct PIN
+                } else {
+                    JOptionPane.showMessageDialog(this, "Incorrect PIN. Try again.");
+                }
+            }
+        }
         accounts = accountData.getAccounts();
 
         // ======= Load Properties Panel =======
         propertiesPanel = new PropertiesPanel();
         propertiesPanel.setOnAccountUpdated(updatedAccount -> {
-            AccountStorage.saveData(accountData);
+            AccountStorage.saveData(accountData, pin);
 
             int selectedRow = accountTable.getSelectedRow();
             if (selectedRow != -1) {
@@ -133,17 +173,6 @@ public class MainForm extends JPanel {
         addButton.addActionListener(e -> openAddAccountDialog());
         removeButton.addActionListener(e -> removeSelectedAccount());
 
-        // ======= Check for pin =======
-        SwingUtilities.invokeLater(() -> {
-            if (accountData.getPin() == null) {
-                String newPin = JOptionPane.showInputDialog(this, "No PIN found. Please create one:");
-                if (newPin != null && !newPin.isEmpty()) {
-                    accountData.setPin(newPin);
-                    AccountStorage.saveData(accountData);
-                    JOptionPane.showMessageDialog(this, "PIN saved.");
-                }
-            }
-        });
     }
 
     /**
@@ -180,8 +209,7 @@ public class MainForm extends JPanel {
             Account newAcc = dialog.getAccount();
             accounts.add(newAcc);
             accountData.setAccounts(accounts);
-            AccountStorage.saveData(accountData);
-            refreshTable();
+            AccountStorage.saveData(accountData, pin);            refreshTable();
         }
     }
 
@@ -193,7 +221,7 @@ public class MainForm extends JPanel {
         if (selectedRow != -1) {
             accounts.remove(selectedRow);
             accountData.setAccounts(accounts);
-            AccountStorage.saveData(accountData);
+            AccountStorage.saveData(accountData, pin);
             refreshTable();
         } else {
             JOptionPane.showMessageDialog(this, "Please select an account to remove.");
