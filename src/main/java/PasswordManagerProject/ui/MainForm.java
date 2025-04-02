@@ -2,6 +2,7 @@ package PasswordManagerProject.ui;
 
 import PasswordManagerProject.model.Account;
 import PasswordManagerProject.storage.AccountStorage;
+import PasswordManagerProject.model.AccountData;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -20,12 +21,26 @@ public class MainForm extends JPanel {
     private boolean passwordsVisible = false;
     private JButton hideButton;
 
+    private AccountData accountData;
+    private PropertiesPanel propertiesPanel;
 
     public MainForm() {
         setLayout(new BorderLayout()); // Root Layout
 
         // ======= Load Accounts =======
-        accounts = AccountStorage.loadAccounts();
+        accountData = AccountStorage.loadData();
+        accounts = accountData.getAccounts();
+
+        // ======= Load Properties Panel =======
+        propertiesPanel = new PropertiesPanel();
+        propertiesPanel.setOnAccountUpdated(updatedAccount -> {
+            AccountStorage.saveData(accountData);
+
+            int selectedRow = accountTable.getSelectedRow();
+            if (selectedRow != -1) {
+                updateTableRow(selectedRow);
+            }
+        });
 
         // ======= Create Tabbed Pane =======
         JTabbedPane tabbedPane = new JTabbedPane();
@@ -79,18 +94,26 @@ public class MainForm extends JPanel {
             }
         };
         accountTable = new JTable(tableModel);
+
+        // ======= Row selection listener =======
+        accountTable.getSelectionModel().addListSelectionListener(e -> {
+            int selectedRow = accountTable.getSelectedRow();
+            if (selectedRow != -1) {
+                Account selected = accounts.get(selectedRow);
+                propertiesPanel.displayAccount(selected, passwordsVisible);
+            } else {
+                propertiesPanel.displayAccount(null, passwordsVisible);
+            }
+        });
+
         JScrollPane tableScrollPane = new JScrollPane(accountTable);
 
         JPanel leftPanel = new JPanel(new BorderLayout());
         leftPanel.add(tableScrollPane, BorderLayout.CENTER);
 
-        // ======= Right (Properties - placeholder) =======
-        JPanel rightPanel = new JPanel(new BorderLayout());
-        JLabel propertiesLabel = new JLabel("Select an account to view website");
-        rightPanel.add(propertiesLabel, BorderLayout.NORTH);
-
+        // ======= Right (Properties Panel) =======
         splitPane.setLeftComponent(leftPanel);
-        splitPane.setRightComponent(rightPanel);
+        splitPane.setRightComponent(propertiesPanel);
 
         // ======= Assemble Accounts Panel =======
         accountsPanel.add(topPanel, BorderLayout.NORTH);
@@ -99,7 +122,6 @@ public class MainForm extends JPanel {
         // ======= Add Tabs =======
         tabbedPane.addTab("Accounts", accountsPanel);
         tabbedPane.addTab("Settings", settingsPanel);
-
 
         // ======= Add TabbedPane to Main Panel =======
         add(tabbedPane, BorderLayout.CENTER);
@@ -113,14 +135,20 @@ public class MainForm extends JPanel {
 
         // ======= Check for pin =======
         SwingUtilities.invokeLater(() -> {
-            if (!PasswordManagerProject.storage.PinStorage.pinExists()) {
-                JFrame parentFrame = (JFrame) SwingUtilities.getWindowAncestor(this);
-                CreatePinDialog dialog = new CreatePinDialog(parentFrame);
-                dialog.setVisible(true);
+            if (accountData.getPin() == null) {
+                String newPin = JOptionPane.showInputDialog(this, "No PIN found. Please create one:");
+                if (newPin != null && !newPin.isEmpty()) {
+                    accountData.setPin(newPin);
+                    AccountStorage.saveData(accountData);
+                    JOptionPane.showMessageDialog(this, "PIN saved.");
+                }
             }
         });
     }
 
+    /**
+     * Refreshes table data with accounts (censored).
+     */
     private void refreshTable() {
         tableModel.setRowCount(0); // Clear
         for (Account acc : accounts) {
@@ -128,6 +156,21 @@ public class MainForm extends JPanel {
         }
     }
 
+    /**
+     * Update the specific table row
+     */
+    private void updateTableRow(int rowIndex) {
+        Account acc = accounts.get(rowIndex);
+        String passwordDisplay = passwordsVisible ? acc.getPassword() : "*****";
+
+        tableModel.setValueAt(acc.getUsername(), rowIndex, 0);
+        tableModel.setValueAt(passwordDisplay, rowIndex, 1);
+        tableModel.setValueAt(acc.getNotes(), rowIndex, 2);
+    }
+
+    /**
+     * Opens the Add Account dialog.
+     */
     private void openAddAccountDialog() {
         JFrame parentFrame = (JFrame) SwingUtilities.getWindowAncestor(this);
         AddAccountDialog dialog = new AddAccountDialog(parentFrame);
@@ -136,36 +179,58 @@ public class MainForm extends JPanel {
         if (dialog.isSubmitted()) {
             Account newAcc = dialog.getAccount();
             accounts.add(newAcc);
-            AccountStorage.saveAccounts(accounts);
+            accountData.setAccounts(accounts);
+            AccountStorage.saveData(accountData);
             refreshTable();
         }
     }
 
+    /**
+     * Removes the selected account.
+     */
     private void removeSelectedAccount() {
         int selectedRow = accountTable.getSelectedRow();
         if (selectedRow != -1) {
             accounts.remove(selectedRow);
-            AccountStorage.saveAccounts(accounts);
+            accountData.setAccounts(accounts);
+            AccountStorage.saveData(accountData);
             refreshTable();
         } else {
             JOptionPane.showMessageDialog(this, "Please select an account to remove.");
         }
     }
 
+    /**
+     * Reveals passwords in table and properties panel.
+     */
     private void uncensorPasswords() {
         passwordsVisible = true;
         tableModel.setRowCount(0);
-        for (PasswordManagerProject.model.Account acc : accounts) {
+        for (Account acc : accounts) {
             tableModel.addRow(new Object[]{acc.getUsername(), acc.getPassword(), acc.getNotes()});
+        }
+        int selectedRow = accountTable.getSelectedRow();
+        if (selectedRow != -1) {
+            propertiesPanel.displayAccount(accounts.get(selectedRow), true);
         }
     }
 
+    /**
+     * Hides passwords and disables edit access in properties panel.
+     */
     private void censorPasswords() {
         passwordsVisible = false;
         hideButton.setVisible(false);
         refreshTable();
+        int selectedRow = accountTable.getSelectedRow();
+        if (selectedRow != -1) {
+            propertiesPanel.displayAccount(accounts.get(selectedRow), false);
+        }
     }
 
+    /**
+     * Starts 3-minute timer to auto-hide passwords.
+     */
     private void startHideTimer() {
         hideButton.setVisible(true);
         if (hideTimer != null && hideTimer.isRunning()) {
@@ -189,11 +254,14 @@ public class MainForm extends JPanel {
         hideTimer.start();
     }
 
+    /**
+     * Verifies PIN input and unlocks passwords.
+     */
     private void verifyPin() {
         String enteredPin = new String(pinField.getPassword());
-        String storedPin = PasswordManagerProject.storage.PinStorage.loadPin();
+        String storedPin = accountData.getPin();
 
-        if (enteredPin.equals(storedPin)) {
+        if (storedPin != null && enteredPin.equals(storedPin)) {
             uncensorPasswords();
             startHideTimer();
         } else {
